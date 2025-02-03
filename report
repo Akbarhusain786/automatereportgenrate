@@ -1,0 +1,128 @@
+import webbrowser
+# these library is used to open generated pdf in web browser
+import os
+# this library is used to interact with operating system
+import requests
+# this library is used to send request api to fetch data
+import pandas as pd
+# this is library to manipulate data
+import matplotlib.pyplot as plt
+# this library is used to plot data in visualization manner
+import yfinance as yf
+# fetch data of stock market from yahoo finance library
+from fpdf import FPDF
+# this library is used to generate pdf
+
+# creating function to fetch data from nifty50 through API
+def fetch_nifty50_data():
+    url = "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050"
+    # url to pint nse data to get from this url
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Referer": "https://www.nseindia.com/",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    # header is request real web browser prevent from blocking, and we also define acceptance language
+
+    # create HTTP session and request NSE website
+    session = requests.Session()
+    session.get("https://www.nseindia.com", headers=headers)
+    response = session.get(url, headers=headers)
+
+    # status condition code 200 then means successful otherwise it print else statement
+    if response.status_code == 200:
+        return response.json()["data"]
+    else:
+        print("NSE API blocked. Switching to Yahoo Finance.")
+        return fetch_nifty50_from_yahoo()
+
+# use yfinance if nse api is blocked
+def fetch_nifty50_from_yahoo():
+    nifty50 = yf.Ticker("^NSEI")
+    hist = nifty50.history(period="1mo")
+    data = []
+    for date, row in hist.iterrows():
+        data.append({
+            "symbol": "NIFTY 50",
+            "identifier": "Yahoo Finance",
+            "lastPrice": row["Close"],
+            "change": row["Close"] - row["Open"],
+            "pChange": ((row["Close"] - row["Open"]) / row["Open"]) * 100,
+        })
+    return data
+
+# below function convert data in to pandas dataframe
+def generate_chart(data):
+    df = pd.DataFrame(data)
+    df["lastPrice"] = df["lastPrice"].astype(float)
+    df = df.sort_values(by="lastPrice", ascending=False)
+    plt.figure(figsize=(10, 5))
+    plt.bar(df["symbol"], df["lastPrice"], color='blue')
+    plt.xlabel("Stock Symbol")
+    plt.ylabel("Last Price")
+    plt.title("NIFTY 50 Stock Prices")
+    plt.xticks(rotation=90)
+    plt.tight_layout()
+    plt.savefig("nifty50_chart.png")
+    plt.close()
+
+# below function is used to create pdf
+def create_pdf(data):
+    pdf = FPDF(orientation="L", unit="mm", format="A4")
+    pdf.add_page()
+    pdf.set_font("Arial", "B", size=14)
+    pdf.cell(275, 10, 'NIFTY 50 Stock Report', align='C', ln=True)
+    pdf.ln(10)
+    pdf.image("nifty50_chart.png", x=20, w=250)
+    pdf.ln(10)
+    pdf.set_font("Arial", 'B', size=8)
+
+    headers = ["Symbol", "Company Name", "Last Price", "Change", "% Change"]
+    col_widths = [40, 80, 30, 30, 30]
+    table_width = sum(col_widths)
+    page_width = pdf.w - 20
+    margin = (page_width - table_width) / 2
+    pdf.set_x(margin)  # Centering the table
+
+    pdf.set_fill_color(200, 200, 200)  # Light gray background for headers
+    pdf.set_text_color(0, 0, 0)
+    for i, header in enumerate(headers):
+        pdf.cell(col_widths[i], 8, header, align="C", border=1, fill=True)
+    pdf.ln()
+
+    pdf.set_font("Arial", '', size=7)
+    pdf.set_fill_color(240, 240, 240)  # Alternating row color
+    fill = False
+    for stock in data:
+        pdf.set_x(margin)  # Centering each row
+        row = [
+            stock["symbol"],
+            stock["identifier"],
+            str(stock["lastPrice"]),
+            str(stock["change"]),
+            str(stock["pChange"])
+        ]
+        for i, item in enumerate(row):
+            pdf.cell(col_widths[i], 6, item, align="C", border=1, fill=fill)
+        pdf.ln()
+        fill = not fill  # Toggle fill color for alternate rows
+
+    pdf_filename = "nifty50_stock_report.pdf"
+    pdf.output(pdf_filename, 'F')
+    return pdf_filename
+
+# create function all thing include in pdf then finally
+def main():
+    try:
+        data = fetch_nifty50_data()
+        generate_chart(data)
+        pdf_filename = create_pdf(data)
+        webbrowser.open(os.path.abspath(pdf_filename))
+        print(f"✅ PDF report generated successfully: '{pdf_filename}'")
+    except Exception as e:
+        print(f"Error: {e}")
+
+
+if __name__ == "__main__":
+    main()
